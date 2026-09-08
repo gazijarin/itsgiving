@@ -15,6 +15,7 @@ import argparse
 import json
 import os
 import platform
+import random
 import subprocess
 import sys
 import time
@@ -27,14 +28,14 @@ from mediapipe.tasks import python as mp_tasks
 from mediapipe.tasks.python import vision
 
 POSES = ["time_out", "heart", "cover_nose", "crashing_out", "dance", "nose_closed", "flirty", "hand_up",
-         "tongue_out", "open_mouth", "disgusted", "talking_to_wall", "suspicious", "spin"]
+         "tongue_out", "open_mouth", "suspicious", "spin"]
 TEST_KEYS = "1234567890-=[]"
 
 FACE_SCALE = 2.0
 HOLD_FRAMES = 10
 ARM = {
     "spin": 15, "suspicious": 8, "talking_to_wall": 6, "dance": 6, "crashing_out": 4,
-    "open_mouth": 4, "tongue_out": 5, "disgusted": 5,
+    "open_mouth": 4, "tongue_out": 5,
 }
 
 Z = dict(
@@ -316,6 +317,39 @@ class Asset:
         return self._cache[key]
 
 
+class SoundPlayer:
+    def __init__(self):
+        self.pygame = None
+        self.sounds = []
+        try:
+            import pygame
+            self.pygame = pygame
+            pygame.mixer.init()
+            sound_dir = os.path.join(HERE, "assets", "sounds")
+            for name in sorted(os.listdir(sound_dir)) if os.path.isdir(sound_dir) else []:
+                if name.lower().endswith((".wav", ".mp3", ".ogg")):
+                    try:
+                        self.sounds.append(pygame.mixer.Sound(os.path.join(sound_dir, name)))
+                    except pygame.error as e:
+                        print(f"  could not load sound {name}: {e}")
+            if not self.sounds:
+                print("  no usable sounds found in assets/sounds")
+            else:
+                print(f"Audio: loaded {len(self.sounds)} sound(s) from assets/sounds")
+        except Exception as e:
+            print(f"Audio unavailable ({e}). Continuing without sounds.")
+
+    def play_random(self):
+        if self.sounds:
+            channel = random.choice(self.sounds).play()
+            if channel is None:
+                print("Audio: no mixer channel available")
+
+    def close(self):
+        if self.pygame is not None:
+            self.pygame.mixer.quit()
+
+
 def to_bgra(img):
     if img.ndim == 2:
         return cv2.cvtColor(img, cv2.COLOR_GRAY2BGRA)
@@ -543,10 +577,6 @@ def decide(face, hands, body, tongue, gesture, m):
         return "tongue_out", d
     if over("jaw_open", m, "z_jaw", "jaw"):
         return "open_mouth", d
-    if over("sneer", m, "z_sneer", "sneer") or m["z_disgust"] >= Z["disgust"]:
-        return "disgusted", d
-    if hands and gesture > T["gesture"]:
-        return "talking_to_wall", d
     if m["turn"] > T["head_turn"] and over("squint", m, "z_squint", "squint"):
         return "suspicious", d
     return None, d
@@ -653,6 +683,7 @@ def main():
             print(f"Virtual camera unavailable ({e}). Preview-only.")
 
     face_det, hand_det, pose_det = build_detectors(model_paths)
+    sound_player = SoundPlayer()
     motion = Motion()
     shown, hold, show_hud = None, 0, True
     arm = {p: 0 for p in POSES}
@@ -699,6 +730,7 @@ def main():
             if fired:
                 if fired != shown:
                     shown_since = now
+                    sound_player.play_random()
                 shown, hold = fired, HOLD_FRAMES
             elif hold > 0:
                 hold -= 1
@@ -746,6 +778,7 @@ def main():
         face_det.close()
         hand_det.close()
         pose_det.close()
+        sound_player.close()
         if vcam:
             vcam.close()
         cv2.destroyAllWindows()

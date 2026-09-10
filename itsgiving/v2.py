@@ -597,7 +597,7 @@ def main():
     base = Baseline() if args.no_calibration else Baseline.load(calib_path)
     if base.generic and not args.calibrate and not args.no_calibration:
         print(f"No usable {CALIB_FILE}. Running on the generic baseline — everything is harder to\n"
-              f"trigger than it should be. Run:  python {os.path.basename(__file__)} --calibrate")
+              f"trigger than it should be. Run:  its-giving-v2 --calibrate")
 
     model_paths = ensure_models()
     if not args.skip_check:
@@ -637,7 +637,7 @@ def main():
         if new is None:
             sys.exit(1)
         new.save(calib_path)
-        print(f"Saved {CALIB_FILE}. Now run:  python {os.path.basename(__file__)}")
+        print(f"Saved {CALIB_FILE}. Now run:  its-giving-v2")
         return
 
     print("Assets:")

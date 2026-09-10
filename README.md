@@ -14,8 +14,8 @@ add more memes to your heart's desire.
 Point Zoom at its virtual camera and the whole call sees it.
 
 ```bash
-python its_giving.py              # preview + virtual camera
-python its_giving.py --no-vcam    # preview only
+its-giving              # preview + virtual camera
+its-giving --no-vcam    # preview only
 ```
 
 Fourteen reactions: time out, heart hands, hands over face, crashing out,
@@ -33,11 +33,16 @@ guessed.
 ```bash
 python3.12 -m venv venv
 source venv/bin/activate           # Windows: venv\Scripts\activate
-pip install -r requirements.txt
+pip install .
 ```
 
-Python 3.11 or 3.12. Three MediaPipe models (~15 MB) download themselves on
-first run.
+This installs two commands, `its-giving` and `its-giving-v2`, wired up as
+console entry points. Python 3.11 or 3.12. The MediaPipe models ship inside
+the package, so nothing downloads on first run.
+
+Prefer an isolated CLI install instead of a venv? `pipx install .` works the
+same way. For development (editable, so edits to `itsgiving/*.py` take effect
+immediately), use `pip install -e .` instead.
 
 **Don't unpin the dependencies.** MediaPipe 0.10.30+ (including 1.0.x) ships
 macOS wheels that abort the moment they open a detector, so it's held at
@@ -51,8 +56,8 @@ nothing in the code cares. Unpin one and you have to unpin all three.
 ## Running it
 
 ```bash
-python its_giving_v2.py --calibrate   # once, seven seconds
-python its_giving_v2.py
+its-giving-v2 --calibrate   # once, seven seconds
+its-giving-v2
 ```
 
 | key | does |
@@ -239,13 +244,16 @@ nose scrunch            z +19.3           z  +5.5        both fire
 ## What's where
 
 ```
-its_giving_v2.py   the calibrated version — the one to use
-its_giving.py      v1: same poses, fixed thresholds
-calibration.json   your neutral face (made by --calibrate, gitignored)
-requirements.txt   pinned on purpose — read the comments before changing them
-assets/            the memes, named after their pose
-models/            MediaPipe .task files (downloaded on first run)
+pyproject.toml           package metadata, pinned deps, `its-giving[-v2]` entry points
+itsgiving/v2.py          the calibrated version — the one to use
+itsgiving/v1.py          v1: same poses, fixed thresholds
+itsgiving/assets/        the memes, named after their pose
+itsgiving/models/        MediaPipe .task files, shipped in the package
 ```
+
+Calibration writes `calibration.json` next to `itsgiving/v2.py` in wherever the
+package got installed (its venv's or pipx's site-packages) — that's what
+`--calibrate` / `-c` update.
 
 Inside the file: `POSES` / `Z` / `FLOOR` / `ARM` is the tuning block,
 `Baseline` and `run_calibration()` are the seven-second sit-still, `measure()`

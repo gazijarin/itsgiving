@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "itsgiving"
+version = "0.1.0"
+description = "Pull a face at your webcam and get the matching meme dropped over your head."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "mediapipe==0.10.21",
+    "numpy<2",
+    "opencv-python<5",
+    "opencv-contrib-python<5",
+    "protobuf>=4.25.3,<5",
+    "pyvirtualcam",
+    "pillow",
+]
+
+[project.scripts]
+its-giving = "itsgiving.v1:main"
+its-giving-v2 = "itsgiving.v2:main"
+
+[tool.setuptools]
+packages = ["itsgiving"]
+include-package-data = true
+
+[tool.setuptools.package-data]
+itsgiving = ["assets/*", "models/*"]

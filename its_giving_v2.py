@@ -15,6 +15,7 @@ import argparse
 import json
 import os
 import platform
+import random
 import subprocess
 import sys
 import time
@@ -331,23 +332,24 @@ def placeholder(label):
     return Asset([img], [100])
 
 
-def find_asset_file(pose):
+def find_asset_files(pose):
+    """All files for a pose: exact stem, prefix_pose, or pose_variant/pose-variant."""
     adir = os.path.join(HERE, "assets")
     if not os.path.isdir(adir):
-        return None
+        return []
     exts = (".gif", ".png", ".jpg", ".jpeg")
+    matches = []
     for fn in sorted(os.listdir(adir)):
         stem, ext = os.path.splitext(fn)
-        if ext.lower() in exts and (stem == pose or stem.endswith("_" + pose)):
-            return os.path.join(adir, fn)
-    return None
+        if ext.lower() not in exts:
+            continue
+        if stem == pose or stem.endswith("_" + pose) or \
+                stem.startswith(pose + "_") or stem.startswith(pose + "-"):
+            matches.append(os.path.join(adir, fn))
+    return matches
 
 
-def load_asset(pose):
-    path = find_asset_file(pose)
-    if path is None:
-        print(f"  {pose:16s} missing -> placeholder")
-        return placeholder(pose)
+def load_one_asset(pose, path):
     frames, durations = [], []
     if path.lower().endswith(".gif"):
         from PIL import Image, ImageSequence
@@ -361,9 +363,24 @@ def load_asset(pose):
             frames, durations = [to_bgra(img)], [100]
     if not frames:
         print(f"  {pose:16s} could not read {os.path.basename(path)} -> placeholder")
-        return placeholder(pose)
-    print(f"  {pose:16s} {os.path.basename(path)}  ({len(frames)} frame{'s' if len(frames) > 1 else ''})")
+        return None
     return Asset(frames, durations)
+
+
+def load_asset(pose):
+    """Returns a list of Asset variants for a pose (at least one; a placeholder if none load)."""
+    paths = find_asset_files(pose)
+    variants = []
+    for path in paths:
+        a = load_one_asset(pose, path)
+        if a is not None:
+            variants.append(a)
+    if not variants:
+        print(f"  {pose:16s} missing -> placeholder")
+        return [placeholder(pose)]
+    names = ", ".join(os.path.basename(p) for p in paths)
+    print(f"  {pose:16s} {len(variants)} variant{'s' if len(variants) > 1 else ''}: {names}")
+    return variants
 
 
 def overlay(frame, sprite, x, y):
@@ -657,6 +674,7 @@ def main():
     shown, hold, show_hud = None, 0, True
     arm = {p: 0 for p in POSES}
     shown_since = 0.0
+    current_asset = None
     forced, forced_until = None, 0.0
     sm_center, sm_h = np.array([W / 2, H / 2], np.float32), H * 0.45
     print("Running. Focus the preview window: q quit, d HUD, c recalibrate, 1-9 0 - = [ ] test a pose")
@@ -699,6 +717,7 @@ def main():
             if fired:
                 if fired != shown:
                     shown_since = now
+                    current_asset = random.choice(assets[fired])
                 shown, hold = fired, HOLD_FRAMES
             elif hold > 0:
                 hold -= 1
@@ -710,7 +729,7 @@ def main():
                 sm_h = 0.7 * sm_h + 0.3 * face.h * FACE_SCALE
 
             if shown:
-                asset = assets[shown]
+                asset = current_asset
                 idx = asset.frame_at(int((now - shown_since) * 1000))
                 h = int(min(sm_h, H * 0.98, (W * 0.98) / asset.aspect)) // 8 * 8
                 sprite = asset.scaled(idx, max(h, 8))

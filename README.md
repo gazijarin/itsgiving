@@ -60,7 +60,7 @@ python its_giving_v2.py
 | `q` | quit |
 | `d` | toggle the HUD |
 | `c` | recalibrate |
-| `1`–`9` `0` `-` `=` `[` `]` | force a reaction on screen for 2 seconds |
+| `1`–`9` `0` `-` `=` `[` `]` `\` | force a reaction on screen for 2 seconds |
 
 ---
 
@@ -112,6 +112,7 @@ someone who likes you first.
 | `disgusted` | scrunch your nose, or brows down and frown |
 | `talking_to_wall` | hands in frame, gesturing away |
 | `suspicious` | turn your head and squint |
+| `rock` | Raise one eyebrow |
 | `spin` | leave the frame entirely |
 
 Assets live in `assets/`, named after the pose — `heart.jpeg`, `spin.gif`.

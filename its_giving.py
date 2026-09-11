@@ -25,14 +25,14 @@ from mediapipe.tasks import python as mp_tasks
 from mediapipe.tasks.python import vision
 
 POSES = ["time_out", "heart", "cover_nose", "crashing_out", "dance", "nose_closed", "flirty", "hand_up",
-         "tongue_out", "open_mouth", "disgusted", "talking_to_wall", "suspicious", "spin"]
-TEST_KEYS = "1234567890-=[]"
+         "tongue_out", "open_mouth", "disgusted", "talking_to_wall", "suspicious", "spin", "rock"]
+TEST_KEYS = "1234567890-=[]\\"
 
 FACE_SCALE = 2.0
 HOLD_FRAMES = 10
 ARM = {
     "spin": 15, "suspicious": 8, "talking_to_wall": 6, "dance": 6, "crashing_out": 4,
-    "open_mouth": 4, "tongue_out": 5, "disgusted": 5,
+    "open_mouth": 4, "tongue_out": 5, "disgusted": 5, "rock": 2
 }
 T = dict(
     jaw_open=0.5,
@@ -44,6 +44,8 @@ T = dict(
     head_turn=0.15,
     squint=0.3,
     gesture=0.035,
+    brow_raise=0.14,
+    brow_other_max=0.05,
 )
 INNER_LIPS = [78, 95, 88, 178, 87, 14, 317, 402, 318, 324, 308, 415, 310, 311, 312, 13, 82, 81, 80, 191]
 
@@ -312,8 +314,11 @@ def decide(face, hands, body, tongue, gesture):
     disgust = 2 * sneer + brow_down + frown + lip_up
     squint = max((face.b("eyeSquintLeft") + face.b("eyeSquintRight")) / 2,
                  (face.b("eyeBlinkLeft") + face.b("eyeBlinkRight")) / 2)
+
+    brow_l, brow_r = face.b("browOuterUpLeft"), face.b("browOuterUpRight")
+
     d.update(jaw=jaw, tongue=tongue, disgust=disgust, sneer=sneer, brow=brow_down, frown=frown, lip=lip_up,
-             turn=face.turn, squint=squint, gesture=gesture, elbows_up=elbows_up)
+             turn=face.turn, squint=squint, gesture=gesture, elbows_up=elbows_up, brow_l=brow_l, brow_r=brow_r)
 
     if len(hands) >= 2:
         a, b = hands[0], hands[1]
@@ -347,6 +352,9 @@ def decide(face, hands, body, tongue, gesture):
         return "tongue_out", d
     if jaw > T["jaw_open"]:
         return "open_mouth", d
+    hi, lo = max(brow_l, brow_r), min(brow_l, brow_r)
+    if hi > T["brow_raise"] and lo < T["brow_other_max"]:
+        return "rock", d
     if sneer > T["sneer"] or disgust > T["disgust"]:
         return "disgusted", d
     if hands and gesture > T["gesture"]:
@@ -369,6 +377,7 @@ def draw_hud(img, shown, raw, d, face, hands, body):
         f"showing: {shown or '-'}   raw: {raw or '-'}   hands: {d.get('hands', 0)}   elbows up: {'Y' if d.get('elbows_up') else 'n'}",
         f"jaw {d.get('jaw', 0):.2f}  tongue {d.get('tongue', 0):.2f}  turn {d.get('turn', 0):.2f}  squint {d.get('squint', 0):.2f}  gesture {d.get('gesture', 0):.3f}",
         f"disgust {d.get('disgust', 0):.2f} = 2x sneer {d.get('sneer', 0):.2f} + brow {d.get('brow', 0):.2f} + frown {d.get('frown', 0):.2f} + lip {d.get('lip', 0):.2f}",
+        f"brow L {d.get('brow_l', 0):.2f}   brow R {d.get('brow_r', 0):.2f}",
         "keys: q quit  d hud  1-9 0 - = [ ] test poses",
     ]
     for i, t in enumerate(lines):

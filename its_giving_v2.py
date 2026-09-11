@@ -27,14 +27,14 @@ from mediapipe.tasks import python as mp_tasks
 from mediapipe.tasks.python import vision
 
 POSES = ["time_out", "heart", "cover_nose", "crashing_out", "dance", "nose_closed", "flirty", "hand_up",
-         "tongue_out", "open_mouth", "disgusted", "talking_to_wall", "suspicious", "spin"]
-TEST_KEYS = "1234567890-=[]"
+         "tongue_out", "open_mouth", "disgusted", "talking_to_wall", "suspicious", "spin", "rock"]
+TEST_KEYS = "1234567890-=[]\\"
 
 FACE_SCALE = 2.0
 HOLD_FRAMES = 10
 ARM = {
     "spin": 15, "suspicious": 8, "talking_to_wall": 6, "dance": 6, "crashing_out": 4,
-    "open_mouth": 4, "tongue_out": 5, "disgusted": 5,
+    "open_mouth": 4, "tongue_out": 5, "disgusted": 5, "rock": 5
 }
 
 Z = dict(
@@ -44,6 +44,7 @@ Z = dict(
     sneer=4.5,
     disgust=14.0,
     squint=4.0,
+    brow_raise=1.8,
 )
 Z_CAP = 8.0
 FLOOR = dict(
@@ -52,11 +53,14 @@ FLOOR = dict(
     tongue_jaw=0.18,
     sneer=0.06,
     squint=0.18,
+    brow_raise=0.04,
 )
 T = dict(
     tongue=0.5,
     head_turn=0.15,
     gesture=0.035,
+    brow_asym=1.1,
+    brow_other_max = 0.75
 )
 
 CALIB_FILE = "calibration.json"
@@ -487,6 +491,9 @@ def measure(face, base):
         "squint": max(pair("eyeSquint"), pair("eyeBlink")),
         "z_squint": max(zpair("eyeSquint"), zpair("eyeBlink")),
         "turn": abs(face.turn_signed - base.neutral_turn),
+        "brow_l": face.b("browOuterUpLeft"), "brow_r": face.b("browOuterUpRight"),
+        "z_brow_l": base.z("browOuterUpLeft", face.b("browOuterUpLeft")),
+        "z_brow_r": base.z("browOuterUpRight", face.b("browOuterUpRight")),
     }
     cap = lambda v: min(v, Z_CAP)
     m["z_disgust"] = 2 * cap(m["z_sneer"]) + cap(m["z_brow"]) + cap(m["z_frown"]) + cap(m["z_lip"])
@@ -543,12 +550,26 @@ def decide(face, hands, body, tongue, gesture, m):
         return "tongue_out", d
     if over("jaw_open", m, "z_jaw", "jaw"):
         return "open_mouth", d
-    if over("sneer", m, "z_sneer", "sneer") or m["z_disgust"] >= Z["disgust"]:
-        return "disgusted", d
     if hands and gesture > T["gesture"]:
         return "talking_to_wall", d
+
+
+    one_brow_up = (max(m["z_brow_l"], m["z_brow_r"]) >= Z["brow_raise"]
+                   and max(m["brow_l"], m["brow_r"]) >= FLOOR["brow_raise"]
+                   and min(m["z_brow_l"], m["z_brow_r"]) <= T["brow_other_max"])
+    if one_brow_up:
+        return "rock", d
+
+
+    if over("sneer", m, "z_sneer", "sneer") or m["z_disgust"] >= Z["disgust"]:
+        return "disgusted", d
+
     if m["turn"] > T["head_turn"] and over("squint", m, "z_squint", "squint"):
         return "suspicious", d
+
+    if hands and gesture > T["gesture"]:
+        return "talking_to_wall", d
+
     return None, d
 
 
@@ -570,6 +591,8 @@ def draw_hud(img, shown, raw, d, face, hands, body, base):
          f"tongue {g('tongue', 0):.2f}   turn {g('turn', 0):.2f}   gesture {g('gesture', 0):.3f}", (0, 255, 0)),
         (f"disgust {g('z_disgust', 0):+.1f}s/{Z['disgust']:.0f} = 2x sneer {g('z_sneer', 0):+.1f} "
          f"+ brow {g('z_brow', 0):+.1f} + frown {g('z_frown', 0):+.1f} + lip {g('z_lip', 0):+.1f}", (0, 255, 0)),
+        (f"brow L {g('brow_l', 0):.2f}={g('z_brow_l', 0):+.1f}s   brow R {g('brow_r', 0):.2f}={g('z_brow_r', 0):+.1f}s    brow_raise={g('brow_raise', 0)}",
+         (0, 255, 0)),
         (("NOT CALIBRATED - generic baseline, everything is harder to trigger. press 'c'"
           if base.generic else
           f"calibrated {base.made} on {base.samples} frames   (s = sigma above your neutral)"),

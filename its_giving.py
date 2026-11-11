@@ -296,6 +296,169 @@ class Motion:
         return self.energy
 
 
+# ---------------------------------------------------------------------------
+# ★  S T A R   M I N I - G A M E
+# ---------------------------------------------------------------------------
+import random
+import math
+
+STAR_RADIUS      = 38          # outer tip radius (pixels)
+STAR_INNER       = 0.42        # inner / outer ratio
+STAR_POINTS      = 5
+STAR_SPAWN_SEC   = 2.5         # new star every N seconds
+STAR_LIFETIME    = 6.0         # star disappears on its own after this
+STAR_HIT_RADIUS  = 55          # how close a fingertip must be (pixels)
+STAR_SPIN_DUR    = 0.55        # seconds for the spin-and-shrink exit anim
+STAR_COLORS = [
+    (0, 220, 255),   # gold-ish (BGR)
+    (0, 180, 255),
+    (30, 255, 255),
+    (120, 60, 255),
+    (255, 180, 60),
+]
+
+
+def _star_poly(cx, cy, outer, inner, points, angle_offset=0.0):
+    """Return an (N,1,2) int32 array — the polygon for cv2.fillPoly."""
+    pts = []
+    for i in range(points * 2):
+        r = outer if i % 2 == 0 else inner
+        a = math.pi / points * i + angle_offset - math.pi / 2
+        pts.append([int(cx + r * math.cos(a)), int(cy + r * math.sin(a))])
+    return np.array(pts, np.int32).reshape((-1, 1, 2))
+
+
+def draw_star(img, cx, cy, outer, angle, color, alpha=1.0):
+    """Draw a filled star with a white border onto img (in-place)."""
+    if outer < 4:
+        return
+    inner = max(2, int(outer * STAR_INNER))
+    poly  = _star_poly(cx, cy, int(outer), inner, STAR_POINTS, angle)
+    overlay_img = img.copy()
+    cv2.fillPoly(overlay_img, [poly], color)
+    cv2.polylines(overlay_img, [poly], True, (255, 255, 255), 2, cv2.LINE_AA)
+    # sparkle: tiny white circle at center
+    cv2.circle(overlay_img, (cx, cy), max(2, int(outer * 0.18)), (255, 255, 255), -1)
+    if alpha < 1.0:
+        cv2.addWeighted(overlay_img, alpha, img, 1.0 - alpha, 0, img)
+    else:
+        img[:] = overlay_img
+
+
+class Star:
+    """One star on screen."""
+
+    _id_counter = 0
+
+    def __init__(self, x, y):
+        Star._id_counter += 1
+        self.id    = Star._id_counter
+        self.x, self.y = x, y
+        self.color = random.choice(STAR_COLORS)
+        self.born  = time.monotonic()
+        # idle wobble
+        self.wobble_phase = random.uniform(0, 2 * math.pi)
+        self.wobble_speed = random.uniform(1.5, 3.0)
+        # state: "alive" → "dying" → done
+        self.state     = "alive"
+        self.hit_time  = 0.0
+        self.base_angle = random.uniform(0, 2 * math.pi)
+
+    def age(self):
+        return time.monotonic() - self.born
+
+    def hit(self):
+        if self.state == "alive":
+            self.state    = "dying"
+            self.hit_time = time.monotonic()
+
+    def done(self):
+        if self.state == "alive":
+            return self.age() > STAR_LIFETIME
+        return (time.monotonic() - self.hit_time) > STAR_SPIN_DUR
+
+    def draw(self, img):
+        now = time.monotonic()
+        if self.state == "alive":
+            # gentle float up/down
+            wobble_y = int(6 * math.sin(self.wobble_phase + now * self.wobble_speed))
+            angle    = self.base_angle + now * 0.8          # slow spin
+            # fade in during first 0.3 s, fade out last 0.8 s
+            age = self.age()
+            alpha = min(1.0, age / 0.3)
+            if age > STAR_LIFETIME - 0.8:
+                alpha = min(alpha, (STAR_LIFETIME - age) / 0.8)
+            alpha = max(0.0, alpha)
+            draw_star(img, self.x, self.y + wobble_y, STAR_RADIUS, angle, self.color, alpha)
+        elif self.state == "dying":
+            t = (now - self.hit_time) / STAR_SPIN_DUR        # 0 → 1
+            outer = int(STAR_RADIUS * (1.0 - t))             # shrinks
+            angle = self.base_angle + t * math.pi * 6        # fast spin
+            alpha = max(0.0, 1.0 - t)
+            draw_star(img, self.x, self.y, outer, angle, self.color, alpha)
+            # burst sparkles
+            for i in range(8):
+                a    = 2 * math.pi / 8 * i + t * math.pi
+                r    = int(STAR_RADIUS * 1.6 * t)
+                px   = int(self.x + r * math.cos(a))
+                py   = int(self.y + r * math.sin(a))
+                rad  = max(1, int(5 * (1 - t)))
+                cv2.circle(img, (px, py), rad, (255, 255, 255), -1, cv2.LINE_AA)
+
+
+class StarGame:
+    """Manages a pool of stars and score."""
+
+    def __init__(self, W, H):
+        self.W, self.H = W, H
+        self.stars: list[Star] = []
+        self.score     = 0
+        self.last_spawn = time.monotonic()
+        self.margin     = STAR_RADIUS + 10
+
+    def _spawn(self):
+        m = self.margin
+        x = random.randint(m, self.W - m)
+        y = random.randint(m + 60, self.H - m)   # leave top strip for HUD
+        self.stars.append(Star(x, y))
+        self.last_spawn = time.monotonic()
+
+    def update(self, hands):
+        now = time.monotonic()
+        # spawn
+        if now - self.last_spawn > STAR_SPAWN_SEC:
+            self._spawn()
+
+        # collect hand tip positions (index + middle fingertips + palm)
+        tips = []
+        for h in hands:
+            tips.extend([h.index, h.middle, h.palm])
+
+        # check hits
+        for s in self.stars:
+            if s.state != "alive":
+                continue
+            for tip in tips:
+                if dist(np.array([s.x, s.y]), tip) < STAR_HIT_RADIUS:
+                    s.hit()
+                    self.score += 1
+                    break
+
+        # remove finished stars
+        self.stars = [s for s in self.stars if not s.done()]
+
+    def draw(self, img):
+        for s in self.stars:
+            s.draw(img)
+        # score badge
+        label = f"★ {self.score}"
+        (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 1.2, 3)
+        bx, by = self.W - tw - 20, 50
+        cv2.rectangle(img, (bx - 8, by - th - 8), (bx + tw + 8, by + 8), (0, 0, 0), -1)
+        cv2.putText(img, label, (bx, by), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 220, 255), 3, cv2.LINE_AA)
+        cv2.putText(img, label, (bx, by), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 1, cv2.LINE_AA)
+
+
 def decide(face, hands, body, tongue, gesture):
     """Return (pose or None, debug dict)."""
     d = {"hands": len(hands)}
@@ -421,6 +584,7 @@ def main():
 
     face_det, hand_det, pose_det = build_detectors(model_paths)
     motion = Motion()
+    star_game = StarGame(W, H)
     shown, hold, show_hud = None, 0, True
     arm = {p: 0 for p in POSES}
     shown_since = 0.0
@@ -483,6 +647,10 @@ def main():
                 sprite = asset.scaled(idx, max(h, 8))
                 sh, sw = sprite.shape[:2]
                 overlay(frame, sprite, int(sm_center[0] - sw / 2), int(sm_center[1] - sh / 2 - 0.05 * sh))
+
+            # ★ star mini-game — update state once, draw onto frame (goes to vcam too)
+            star_game.update(hands)
+            star_game.draw(frame)
 
             if vcam:
                 vcam.send(frame)
